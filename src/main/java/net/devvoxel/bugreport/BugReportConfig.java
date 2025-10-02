@@ -1,7 +1,6 @@
 package net.devvoxel.bugreport;
 
 import org.spongepowered.configurate.CommentedConfigurationNode;
-import org.spongepowered.configurate.ConfigurateException;
 import org.spongepowered.configurate.hocon.HoconConfigurationLoader;
 
 import java.io.IOException;
@@ -23,15 +22,19 @@ public final class BugReportConfig {
         this.loader = HoconConfigurationLoader.builder().path(filePath).build();
     }
 
-    public void load() throws ConfigurateException, IOException {
+    public void load() throws IOException {
         Files.createDirectories(filePath.getParent());
         if (Files.notExists(filePath)) {
             root = createDefaultNode();
-            loader.save(root);
+            saveNode(root);
             return;
         }
 
-        root = loader.load();
+        try {
+            root = loader.load();
+        } catch (Exception e) {
+            throw new IOException("Unable to load bug report configuration", e);
+        }
         boolean changed = false;
         if (root.node("language").virtual()) {
             root.node("language").set(DEFAULT_LANGUAGE);
@@ -46,24 +49,36 @@ public final class BugReportConfig {
             changed = true;
         }
         if (changed) {
-            loader.save(root);
+            saveNode(root);
         }
     }
 
     public void useDefaults() {
         try {
             root = createDefaultNode();
-        } catch (ConfigurateException e) {
+        } catch (IOException e) {
             throw new IllegalStateException("Unable to create default configuration", e);
         }
     }
 
-    private CommentedConfigurationNode createDefaultNode() throws ConfigurateException {
-        CommentedConfigurationNode node = loader.createNode();
-        node.node("language").set(DEFAULT_LANGUAGE);
-        node.node("prefix").set(DEFAULT_PREFIX);
-        node.node("webhook").set(DEFAULT_WEBHOOK);
-        return node;
+    private CommentedConfigurationNode createDefaultNode() throws IOException {
+        try {
+            CommentedConfigurationNode node = loader.createNode();
+            node.node("language").set(DEFAULT_LANGUAGE);
+            node.node("prefix").set(DEFAULT_PREFIX);
+            node.node("webhook").set(DEFAULT_WEBHOOK);
+            return node;
+        } catch (Exception e) {
+            throw new IOException("Unable to create default configuration", e);
+        }
+    }
+
+    private void saveNode(CommentedConfigurationNode node) throws IOException {
+        try {
+            loader.save(node);
+        } catch (Exception e) {
+            throw new IOException("Unable to save bug report configuration", e);
+        }
     }
 
     public String getLanguage() {

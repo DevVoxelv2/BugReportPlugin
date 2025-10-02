@@ -9,13 +9,13 @@ import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
-import com.velocitypowered.api.util.Position;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
-import org.spongepowered.configurate.ConfigurateException;
 import org.slf4j.Logger;
 
 import javax.inject.Inject;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -55,7 +55,7 @@ public final class BugReportPlugin {
         this.config = new BugReportConfig(dataDirectory);
         try {
             config.load();
-        } catch (ConfigurateException | java.io.IOException e) {
+        } catch (java.io.IOException e) {
             logger.error("Unable to load bug report configuration", e);
             config.useDefaults();
         }
@@ -80,8 +80,7 @@ public final class BugReportPlugin {
         String serverName = player.getCurrentServer()
             .map(connection -> connection.getServerInfo().getName())
             .orElse("Unknown");
-        Position position = player.getPosition();
-        String location = String.format(Locale.ROOT, "%.2f, %.2f, %.2f", position.getX(), position.getY(), position.getZ());
+        String location = resolvePlayerLocation(player);
 
         BugReport report = new BugReport(player, serverName, location, reason);
         reports.add(report);
@@ -89,6 +88,42 @@ public final class BugReportPlugin {
         sendPrefixedMessage(player, messages.get("report-sent"));
         notifyStaff(report, player);
         dispatchWebhook(report, player);
+    }
+
+    private String resolvePlayerLocation(Player player) {
+        String unknownLocation = messages != null ? messages.get("location-unknown") : "Unknown";
+        try {
+            Method getPosition = player.getClass().getMethod("getPosition");
+            Object position = getPosition.invoke(player);
+            if (position == null) {
+                return unknownLocation;
+            }
+            double x = extractCoordinate(position, "getX", "x");
+            double y = extractCoordinate(position, "getY", "y");
+            double z = extractCoordinate(position, "getZ", "z");
+            return String.format(Locale.ROOT, "%.2f, %.2f, %.2f", x, y, z);
+        } catch (NoSuchMethodException e) {
+            logger.debug("Velocity API does not expose player positions on this version");
+        } catch (IllegalAccessException | InvocationTargetException | RuntimeException e) {
+            logger.warn("Unable to read player position for {}", player.getUsername(), e);
+        }
+        return unknownLocation;
+    }
+
+    private double extractCoordinate(Object position, String... methodNames) throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
+        Class<?> type = position.getClass();
+        for (String methodName : methodNames) {
+            try {
+                Method accessor = type.getMethod(methodName);
+                Object value = accessor.invoke(position);
+                if (value instanceof Number number) {
+                    return number.doubleValue();
+                }
+            } catch (NoSuchMethodException ignored) {
+                // Try the next accessor variant
+            }
+        }
+        throw new NoSuchMethodException("No numeric accessor found for player position coordinate");
     }
 
     private void notifyStaff(BugReport report, Player sender) {
