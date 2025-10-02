@@ -1,0 +1,8 @@
+{
+  "id": "bugreportplugin",
+  "name": "BugReportPlugin",
+  "version": "1.0.0",
+  "main": "net.devvoxel.bugreport.BugReportPlugin",
+  "authors": ["devvoxel"],
+  "dependencies": []
+}
